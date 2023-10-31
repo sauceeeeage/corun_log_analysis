@@ -287,25 +287,27 @@ def fit_curve(x_val, y_val, func):
 
 
 def parse_cache_bandwidth(file_name):
-    pattern = r"Array Size: (\d+) elements\(\dB double\) in \w+\nTriad: Best Rate MB\/s (\d+\.\d+), Avg time (\d+e-\d+), Min time (\d+e-\d+), Max time (\d+e-\d+), Access Times([\d.e-]+), Avg Time per Access([\d.e-]+)"
+    pattern = r"Array Size: (\d+) elements\(\dB double\) in (rust|c)\nTriad: Best Rate MB\/s (\d+\.\d+), Avg time (\d+e-\d+), Min time (\d+e-\d+), Max time (\d+e-\d+), Access Times([\d.e-]+), Avg Time per Access([\d.e-]+)"
     with open(file_name, "r") as file:
         text = file.read()
         matches = re.findall(pattern, text)
 
         cache_bandwidth_data = []
+        rtn_df = {"rust": pd.DataFrame, "c": pd.DataFrame}
         n_times = 10
 
         for match in matches:
             array_size = int(match[0])
-            avg_time = float(match[2])
+            language = match[1]
+            avg_time = float(match[3])
             access_times = array_size * 3
             avg_time_per_access = avg_time / access_times
 
-            cache_bandwidth_data.append([array_size, avg_time, access_times, avg_time_per_access])
+            rtn_df.update({language: pd.DataFrame([array_size, avg_time, access_times, avg_time_per_access], columns=["Per Array Size", "Avg time", "Access Times", "Avg Time per Access"])})
 
         # Create a DataFrame with the extracted data
-        cache_bandwidth_df = pd.DataFrame(cache_bandwidth_data, columns=["Per Array Size", "Avg time", "Access Times", "Avg Time per Access"])
-        return cache_bandwidth_df
+        # cache_bandwidth_df = pd.DataFrame(cache_bandwidth_data, columns=["Per Array Size", "Avg time", "Access Times", "Avg Time per Access"])
+        return rtn_df
 
 
 def main():
@@ -410,13 +412,13 @@ def main():
     plt.figure(figsize=(10, 6))
     cache_df = parse_cache_bandwidth(cache_log_file_name)
     print(cache_df)
-    plt.scatter(cache_df['Per Array Size'], cache_df['Avg Time per Access'], color='blue')
-    plt.title('Triad per Array Size vs. Avg Time per Access(s)')
-    plt.xlabel('Triad per Array Size')
-    plt.ylabel('Avg Time per Access(s)')
-    plt.grid(True)
-    plt.savefig(cache_log_file_name + '_time_per_access', dpi=100)
-    plt.show()
+    # plt.scatter(cache_df['Per Array Size'], cache_df['Avg Time per Access'], color='blue')
+    # plt.title('Triad per Array Size vs. Avg Time per Access(s)')
+    # plt.xlabel('Triad per Array Size')
+    # plt.ylabel('Avg Time per Access(s)')
+    # plt.grid(True)
+    # plt.savefig(cache_log_file_name + '_time_per_access', dpi=100)
+    # plt.show()
 
 
     # plt.figure(figsize=(10, 6))
