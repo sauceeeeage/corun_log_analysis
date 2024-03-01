@@ -13,6 +13,13 @@ from sklearn.metrics import r2_score
 # TODO: write a script to test where does the O1 to O3 optimization difference decrease to 0
 opt_gap_filename = 'sawtooth_opt-gap-log'
 co_run_log_filename = 'aarch64-cloud-machine_1-3000sawtooth_O3gemm_3hr_log'
+'''
+For cycle2 machine, L1(384KiB) should be cap at 49152 elements(8B), L2(3072KiB) should be 393216, and L3(30720KiB) should be 3932160
+'''
+
+L1_size_f64 = 49152 # f32 should be f64 times 2, b/c it needs more elements to fill the same amount of space
+L2_size_f64 = 393216
+L3_size_f64 = 3932160
 
 
 def read_opt_gap_log(option):
@@ -249,7 +256,7 @@ def curve_plotting(x_val, func, curve_name, color, *args, wh_plot=True):
         w = []
         h = []
 
-        for i in np.arange(min(x_val), max(x_val), 0.01):
+        for i in np.arange(min(x_val), max(x_val), 1):
             w.append(i)
             h.append(func(i, *a))
         plt.plot(w, h, label=f'{curve_name}: ' + tail, color=color)
@@ -287,13 +294,15 @@ def fit_curve(x_val, y_val, func):
 
 
 def parse_cache_bandwidth(file_name):
-    pattern = r"Array Size: (\d+) elements\(\dB double\) in (rust|c)\nTriad: Best Rate MB\/s (\d+\.?\d*e?[+-]?\d*), Avg time (\d+\.?\d*e?[+-]?\d*), Min time (\d+\.?\d*e?[+-]?\d*), Max time (\d+\.?\d*e?[+-]?\d*), Access Times(\d+\.?\d*e?[+-]?\d*), Avg Time per Access(\d+\.?\d*e?[+-]?\d*)"
+    pattern1 = (r"Array Size: (\d+) elements in double\n")
+    pattern2 = (r"(CYCLIC|RAND CYCLIC|SAWTOOTH|RAND SAWTOOTH): Best Rate MB\/s (\d+\.?\d*e?[+-]?\d*|inf), Avg time (\d+\.?\d*e?[+-]?\d*), Min time (\d+\.?\d*e?[+-]?\d*), Max time (\d+\.?\d*e?[+-]?\d*), Access Times(\d+\.?\d*e?[+-]?\d*), Avg Time per Access(\d+\.?\d*e?[+-]?\d*)")
     with open(file_name, "r") as file:
         text = file.read()
-        matches = re.findall(pattern, text)
+        matches = re.findall([pattern1, pattern2], text)
+        print(matches)
 
-        cache_bandwidth_data = []
-        rtn_df = {"rust": pd.DataFrame(
+        rtn_df = {
+            "CYCLIC": pd.DataFrame(
             {
                 "Per Array Size": [],
                 "Avg time": [], 
@@ -301,24 +310,43 @@ def parse_cache_bandwidth(file_name):
                 "Avg Time per Access": []
             }
         ), 
-        "c": pd.DataFrame(
+            "RAND CYCLIC": pd.DataFrame(
             {
                 "Per Array Size": [],
                 "Avg time": [], 
                 "Access Times": [], 
                 "Avg Time per Access": []
             }
-        )}
+        ),
+            "SAWTOOTH": pd.DataFrame(
+            {
+                "Per Array Size": [],
+                "Avg time": [],
+                "Access Times": [],
+                "Avg Time per Access": []
+            }
+        ),
+            "RAND SAWTOOTH": pd.DataFrame(
+            {
+                "Per Array Size": [],
+                "Avg time": [],
+                "Access Times": [],
+                "Avg Time per Access": []
+            }
+        )
+        }
         n_times = 10
         pprint(matches)    
 
         for match in matches:
             array_size = int(match[0])
-            language = match[1]
+            acc_pat = match[1]
             avg_time = float(match[3])
-            access_times = array_size * 3
+            min_time = float(match[4])
+            max_time = float(match[5])
+            access_times = math.ceil(array_size/8) * 3
             avg_time_per_access = avg_time / access_times
-            cache_df = rtn_df.get(language)
+            cache_df = rtn_df.get(acc_pat)
             # cache_df.concat([
             #     {"Per Array Size": array_size}, 
             #     {"Avg time": avg_time},
@@ -405,6 +433,10 @@ def main():
     def simplier_sigmoid(x, a, b, c):
         return 1/(1 + np.exp(-x))
 
+    def tanh(x, a):
+        # TODO: need to finish tanh
+        pass
+
     # avg_copt, _ = fit_curve(x_values, y_values, cubic)
     # avg_cwtopt, _ = fit_curve(x_values, y_values, cubic_with_term)
     # avg_fopt, _ = fit_curve(x_values, y_values, fourth)
@@ -438,19 +470,93 @@ def main():
     #                  'N', 'Duration (s)',
     #                  [cubic, cubic_with_term, fourth], ['cubic', 'cubic with terms', 'fourth'], ['green', 'red', 'yellow'], [[*non_avg_copt], [*non_avg_cwtopt], [*non_avg_fopt]])
 
-    cache_log_file_name = "cache_bandwidth_log"
+    yifan_l2_cache = 0.5*1024*1024
+    yifan_l3_cache = 768*1024*1024
+    shaotong_l2_cache = 1*1024*1024
+    shaotong_l3_cache = 128*1024*1024
+    cycle2_l2_cache = 3*1024*1024
+    cycle2_l3_cache = 30*1024*1024
+    AWS_l2_cache = 8*1024*1024
+    AWS_l3_cache = 32*1024*1024
+
+    cache_log_file_name = "shaotong_read_only_cycle_count.csv"
     plt.figure(figsize=(10, 6))
-    cache_df = parse_cache_bandwidth(cache_log_file_name)
-    print(cache_df)
-    c_df = cache_df["c"]
-    rust_df = cache_df["rust"]
-    plt.scatter(c_df['Per Array Size'], c_df['Avg Time per Access'], color='blue')
-    plt.scatter(rust_df['Per Array Size'], rust_df['Avg Time per Access'], color='red')
-    plt.title('Triad per Array Size vs. Avg Time per Access(s)')
-    plt.xlabel('Triad per Array Size')
-    plt.ylabel('Avg Time per Access(s)')
+    cache_df = pd.read_csv(cache_log_file_name)
+    # cache_df = parse_cache_bandwidth(cache_log_file_name)
+    # print(cache_df)
+    # c_df = cache_df["float"]
+    # rust_df = cache_df["double"]
+    # rust_df = rust_df.loc[rust_df['Per Array Size'] <= 7e7]
+    # c_df = c_df.loc[c_df['Per Array Size'] <= 7e7]
+    # rust_df = rust_df.loc[rust_df['Per Array Size'] <= 1.0e-5]
+    # plt.scatter(c_df['Per Array Size']*3*4, c_df['Avg Time per Access'], label='float', color='blue')
+
+    # cyclic_df = cache_df.loc[cache_df['Access Pattern' == 'CYCLIC']]
+    # rand_cyclic_df = cache_df.loc[cache_df['Access Pattern' == 'RAND CYCLIC']]
+    # sawtooth_df = cache_df.loc[cache_df['Access Pattern' == 'SAWTOOTH']]
+    # rand_sawtooth_df = cache_df.loc[cache_df['Access Pattern' == 'RAND SAWTOOTH']]
+
+    dfs = {}
+    for access_pattern in cache_df['Access Pattern'].unique():
+        dfs[access_pattern] = cache_df[cache_df['Access Pattern'] == access_pattern].copy()
+        # print(dfs[access_pattern])
+    # print(dfs)
+    # cyclic_df = dfs['CYCLIC'].sort_values(by=['Size'], ascending=True, ignore_index=True)
+    # rand_cyclic_df = dfs['RAND CYCLIC'].sort_values(by=['Size'], ascending=True, ignore_index=True)
+    # sawtooth_df = dfs['SAWTOOTH'].sort_values(by=['Size'], ascending=True, ignore_index=True)
+    # rand_sawtooth_df = dfs['RAND SAWTOOTH'].sort_values(by=['Size'], ascending=True, ignore_index=True)
+
+    cyclic_df = dfs['CYCLIC'].groupby('Size')['Avg Time per Access'].mean().reset_index()
+    sawtooth_df = dfs['SAWTOOTH'].groupby('Size')['Avg Time per Access'].mean().reset_index()
+    for_for_df = dfs['RAND FORWARD FORWARD'].groupby('Size')['Avg Time per Access'].mean().reset_index()
+    for_back_df = dfs['RAND FORWARD BACKWARD'].groupby('Size')['Avg Time per Access'].mean().reset_index()
+    back_back_df = dfs['RAND BACKWARD BACKWARD'].groupby('Size')['Avg Time per Access'].mean().reset_index()
+    print(back_back_df)
+    print(for_for_df)
+    print(for_back_df)
+    print(cyclic_df)
+    print(sawtooth_df)
+    # print(cyclic_df['Size']*3*8)
+    # print(cyclic_df['Avg Time per Access']*8)
+    # print(cyclic_df['Size'])
+    # print(cyclic_df['Avg Time per Access'])
+
+    cyclic_popt, cyclic_pcov = fit_curve(cyclic_df['Size']*8, cyclic_df['Avg Time per Access'], sqrt_fit)
+    sawtooth_popt, sawtooth_pcov = fit_curve(sawtooth_df['Size']*8, sawtooth_df['Avg Time per Access'], sqrt_fit)
+    for_for_popt, for_for_pcov = fit_curve(for_for_df['Size']*8, for_for_df['Avg Time per Access'], sqrt_fit)
+    for_back_popt, for_back_pcov = fit_curve(for_back_df['Size']*8, for_back_df['Avg Time per Access'], sqrt_fit)
+    back_back_popt, back_back_pcov = fit_curve(back_back_df['Size']*8, back_back_df['Avg Time per Access'], sqrt_fit)
+
+    print_curve_fit_result(cyclic_popt, 'cyclic')
+    print_curve_fit_result(sawtooth_popt, 'sawtooth')
+    print_curve_fit_result(for_for_popt, 'for_for')
+    print_curve_fit_result(for_back_popt, 'for_back')
+    print_curve_fit_result(back_back_popt, 'back_back')
+
+    plt.plot(cyclic_df['Size']*8, sqrt_fit(cyclic_df['Size']*8, *cyclic_popt), label='cyclic', color='red')
+    plt.plot(sawtooth_df['Size']*8, sqrt_fit(sawtooth_df['Size']*8, *sawtooth_popt), label='sawtooth', color='green')
+    plt.plot(for_for_df['Size']*8, sqrt_fit(for_for_df['Size']*8, *for_for_popt), label='for_for', color='blue')
+    plt.plot(for_back_df['Size']*8, sqrt_fit(for_back_df['Size']*8, *for_back_popt), label='for_back', color='yellow')
+    plt.plot(back_back_df['Size']*8, sqrt_fit(back_back_df['Size']*8, *back_back_popt), label='back_back', color='black')
+
+    plt.plot(cyclic_df['Size']*8, cyclic_df['Avg Time per Access'], label='cyclic', color='red', linewidth=3)
+    plt.plot(sawtooth_df['Size']*8, sawtooth_df['Avg Time per Access'], label='sawtooth', color='green', linewidth=3)
+    plt.plot(for_for_df['Size']*8, for_for_df['Avg Time per Access'], label='for_for', color='blue', linewidth=3)
+    plt.plot(for_back_df['Size']*8, for_back_df['Avg Time per Access'], label='for_back', color='yellow', linewidth=3)
+    plt.plot(back_back_df['Size']*8, back_back_df['Avg Time per Access'], label='back_back', color='black', linewidth=3)
+
+    plt.axvline(x=384*1024/12, color='black', label='L1 size')
+    plt.axvline(x=shaotong_l2_cache, color='black', label='L2 size')
+    plt.axvline(x=shaotong_l3_cache, color='black', label='L3 size')
+    ax = plt.gca()
+    ax.set_ylim([0, 10])
+    ax.set_xlim([0, shaotong_l2_cache])
+    plt.title('Total Arrays Size vs. Avg Cycles per Access(s)')
+    plt.xlabel('Total Arrays Size(B)')
+    plt.ylabel('Avg Cycles per Access(s)')
     plt.grid(True)
-    plt.savefig(cache_log_file_name + '_time_per_access', dpi=100)
+    plt.legend()
+    plt.savefig(cache_log_file_name + '_time_per_access.png', dpi=100)
     plt.show()
 
 
