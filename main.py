@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from pprint import pprint
 from sklearn.metrics import r2_score
+import statistics
 
 # TODO: do the 1-2400 corun on server
 # TODO: write a script to test where does the O1 to O3 optimization difference decrease to 0
@@ -17,10 +18,9 @@ co_run_log_filename = 'aarch64-cloud-machine_1-3000sawtooth_O3gemm_3hr_log'
 For cycle2 machine, L1(384KiB) should be cap at 49152 elements(8B), L2(3072KiB) should be 393216, and L3(30720KiB) should be 3932160
 '''
 
-L1_size_f64 = 49152 # f32 should be f64 times 2, b/c it needs more elements to fill the same amount of space
-L2_size_f64 = 393216
-L3_size_f64 = 3932160
-
+Ki = 1024
+Mi = 1024 * Ki
+Gi = 1024 * Mi
 
 def read_opt_gap_log(option):
     timestamps = []
@@ -123,7 +123,7 @@ def parsing_log():
             data['prog_id'] = re.search(r"prog_id:\s*(.*?),", match).group(1)
             data['prog_name'] = re.search(r'prog_name:\s*"(.*)",', match).group(1)
             data['cmd'] = re.search(r'cmd:\s*Some\(\s*"(.*)",\s*\)', match).group(1)
-            args_match = re.search(r'args:\s*Some\(\s*\[\s*([\s\S]*?)\s*\],\s*\)', match)
+            args_match = re.search(r'args:\s*Some\(\s*\[\s*([\s\S]*?)\s*pe\],\s*\)', match)
             data['args'] = [arg.strip('"') for arg in args_match.group(1).split(',')] if args_match else []
             extracted_data.append(data)
 
@@ -369,22 +369,6 @@ def parse_cache_bandwidth(file_name):
 
 
 def main():
-    # read in the txt file
-    # extracted_data = parsing_log()
-    # non_avg_x, non_avg_y = parse_extraced_data(extracted_data)
-    # zip_to_csv(non_avg_x, non_avg_y, co_run_log_filename+"_non-avg")
-    #
-    # # get the min and max value in data['N']
-    # min_n = min([data['N'] for data in extracted_data])
-    # max_n = max([data['N'] for data in extracted_data])
-    #
-    # # get the avg of duration for each N
-    # x_values, y_values = averaging_size_and_duration(extracted_data)
-    # time_per_access_df = get_matrix_size_accesses_time_per_access(non_avg_x, non_avg_y)
-    # time_per_access_df.to_csv(co_run_log_filename + '_time-per-access.csv', index=False)
-    # # print(time_per_access_df)
-
-    # fit the curve
     def polynomial(x, u, b, c, d, e):
         return u * x ** 4 + b * x ** 3 + c * x ** 2 + d * x + e
 
@@ -437,233 +421,268 @@ def main():
         # TODO: need to finish tanh
         pass
 
-    # avg_copt, _ = fit_curve(x_values, y_values, cubic)
-    # avg_cwtopt, _ = fit_curve(x_values, y_values, cubic_with_term)
-    # avg_fopt, _ = fit_curve(x_values, y_values, fourth)
-    # non_avg_copt, _ = fit_curve(non_avg_x, non_avg_y, cubic)
-    # non_avg_cwtopt, _ = fit_curve(non_avg_x, non_avg_y, cubic_with_term)
-    # non_avg_fopt, _ = fit_curve(non_avg_x, non_avg_y, fourth)
-    # tpa_sqrt_opt, _ = fit_curve(time_per_access_df['matrix size'], time_per_access_df['time per access'], sqrt_fit)
-    # tpa_log_opt, _ = fit_curve(time_per_access_df['matrix size'], time_per_access_df['time per access'], log_fit)
-    # tpa_sigmoid_opt, _ = fit_curve(time_per_access_df['matrix size'], time_per_access_df['time per access'], sigmoid)
-    #
-    # print_curve_fit_result(avg_copt, 'averaged cubic')
-    # print_curve_fit_result(avg_cwtopt, 'averaged cubic with term')
-    # print_curve_fit_result(avg_fopt, 'averaged fourth')
-    # print_curve_fit_result(non_avg_copt, 'non-averaged cubic')
-    # print_curve_fit_result(non_avg_cwtopt, 'non-averaged cubic with term')
-    # print_curve_fit_result(non_avg_fopt, 'non-averaged fourth')
-    # print_curve_fit_result(tpa_sqrt_opt, 'time per access sqrt')
-    # print_curve_fit_result(tpa_log_opt, 'time per access log')
-    # print_curve_fit_result(tpa_sigmoid_opt, 'time per access sigmoid')
-    #
-    # # draw the plot
-    # scatter_plotting(time_per_access_df['matrix size'], time_per_access_df['time per access'], co_run_log_filename + '_time-per-access',
-    #                  'Matrix Size', 'Time per Access (s)',
-    #                  [sqrt_fit, log_fit], ['sqrt', 'log'], ['green', 'red'], [[*tpa_sqrt_opt], [*tpa_log_opt]])
-    #
-    # scatter_plotting(x_values, y_values, co_run_log_filename + '_avged',
-    #                  'N', 'Duration (s)',
-    #                  [cubic, cubic_with_term, fourth], ['cubic', 'cubic with terms', 'fourth'], ['green', 'red', 'yellow'], [[*avg_copt], [*avg_cwtopt], [*avg_fopt]])
-    #
-    # scatter_plotting(non_avg_x, non_avg_y, co_run_log_filename + '_non-avg',
-    #                  'N', 'Duration (s)',
-    #                  [cubic, cubic_with_term, fourth], ['cubic', 'cubic with terms', 'fourth'], ['green', 'red', 'yellow'], [[*non_avg_copt], [*non_avg_cwtopt], [*non_avg_fopt]])
+    def ln(x, a, b):
+        return a * np.log(b * x)
 
-    yifan_l2_cache = 0.5*1024*1024
-    yifan_l3_cache = 768*1024*1024
-    shaotong_l2_cache = 1*1024*1024
-    shaotong_l3_cache = 128*1024*1024
-    cycle2_l2_cache = 3*1024*1024
-    cycle2_l3_cache = 30*1024*1024
-    AWS_l2_cache = 8*1024*1024
-    AWS_l3_cache = 32*1024*1024
+    def rand_evict(c, d):
+        return 1 - (1 - (1 / c)) ** d
 
-    cache_log_file_name = "shaotong_read_only_cycle_count.csv"
+    def rand_evict_sawtooth(c, d):
+        sum = 0
+        for i in range(1, d):
+            sum += (1 - (1 - (1 / c)) ** i)
+    rd_cr = [0, 0.445, 0.911, 0.995, 0.999]
+    rd_cr = [0, 0.445*340, 0.911*340, 0.995*340, 0.999*340]
+    rd_d = [64*Mi, 128*Mi, 256*Mi, 512*Mi, 1*Gi]
+    # mr_with_set_associativity = [0, 0.415, 0.903, ]
+
+    def new_rand_evict(x, c, d):
+        return 1 - (1 - 1 / c) ** (d * x)
+
+    SECOND_CURVE = False
+    RAND_EVICTION_CURVE = False
+    CONVERT_TO_SEC = False
+    SCALE_SECOND_CURVE = False # scale the second curve to the first curve
+    TRIM_DATA = True
+    CURVE_FITTING = False
+    DATA_PLOTTING = True
+    CACHE_SIZE_PLOTTING = True
+    YIFAN_CACHE_SZIE_PLOTTING = False
+    SHAOTONG_CACHE_SIZE_PLOTTING = True
+    CYCLE2_CACHE_SIZE_PLOTTING = False
+    PRINT_DATA = True
+    DIFFERENCE_IN_RESULTS = False
+
+    yifan_l2_cache = 0.5*Mi # private L2 cache
+    yifan_l3_cache = 96*Mi
+    shaotong_l2_cache = 1*Mi # private L2 cache
+    shaotong_l3_cache = 96*Mi
+    shaotong_l3_cache_no3d = 32*Mi
+    cycle2_l2_cache = 0.25*Mi # 3Mib(12 instances) L2 cache
+    cycle2_l3_cache = 15*Mi # 30Mib(2 instances) L3 cache
+    AWS_l2_cache = 8*Mi
+    AWS_l3_cache = 32*Mi
+
+    yifan_peak_freq = 3.5 # GHz
+    shaotong_peak_freq = 5.7 # GHz
+
     plt.figure(figsize=(10, 6))
-    cache_df = pd.read_csv(cache_log_file_name)
-    # cache_df = parse_cache_bandwidth(cache_log_file_name)
-    # print(cache_df)
-    # c_df = cache_df["float"]
-    # rust_df = cache_df["double"]
-    # rust_df = rust_df.loc[rust_df['Per Array Size'] <= 7e7]
-    # c_df = c_df.loc[c_df['Per Array Size'] <= 7e7]
-    # rust_df = rust_df.loc[rust_df['Per Array Size'] <= 1.0e-5]
-    # plt.scatter(c_df['Per Array Size']*3*4, c_df['Avg Time per Access'], label='float', color='blue')
 
-    # cyclic_df = cache_df.loc[cache_df['Access Pattern' == 'CYCLIC']]
-    # rand_cyclic_df = cache_df.loc[cache_df['Access Pattern' == 'RAND CYCLIC']]
-    # sawtooth_df = cache_df.loc[cache_df['Access Pattern' == 'SAWTOOTH']]
-    # rand_sawtooth_df = cache_df.loc[cache_df['Access Pattern' == 'RAND SAWTOOTH']]
+    cache_log_file_name = "shaotong_default_dependent_large_scale.csv"
+    cache_df = pd.read_csv(cache_log_file_name)
 
     dfs = {}
     for access_pattern in cache_df['Access Pattern'].unique():
         dfs[access_pattern] = cache_df[cache_df['Access Pattern'] == access_pattern].copy()
-        # print(dfs[access_pattern])
-    # print(dfs)
-    # cyclic_df = dfs['CYCLIC'].sort_values(by=['Size'], ascending=True, ignore_index=True)
-    # rand_cyclic_df = dfs['RAND CYCLIC'].sort_values(by=['Size'], ascending=True, ignore_index=True)
-    # sawtooth_df = dfs['SAWTOOTH'].sort_values(by=['Size'], ascending=True, ignore_index=True)
-    # rand_sawtooth_df = dfs['RAND SAWTOOTH'].sort_values(by=['Size'], ascending=True, ignore_index=True)
+
+    if SECOND_CURVE:
+        second_cache_log_file_name = "yifan_huge_pg_2MiB_dependent.csv"
+        second_cache_df = pd.read_csv(second_cache_log_file_name)
+
+        second_dfs = {}
+        for access_pattern in cache_df['Access Pattern'].unique():
+            second_dfs[access_pattern] = second_cache_df[second_cache_df['Access Pattern'] == access_pattern].copy()
 
     cyclic_df = dfs['CYCLIC'].groupby('Size')['Avg Time per Access'].mean().reset_index()
     sawtooth_df = dfs['SAWTOOTH'].groupby('Size')['Avg Time per Access'].mean().reset_index()
     for_for_df = dfs['RAND FORWARD FORWARD'].groupby('Size')['Avg Time per Access'].mean().reset_index()
     for_back_df = dfs['RAND FORWARD BACKWARD'].groupby('Size')['Avg Time per Access'].mean().reset_index()
     back_back_df = dfs['RAND BACKWARD BACKWARD'].groupby('Size')['Avg Time per Access'].mean().reset_index()
-    print(back_back_df)
-    print(for_for_df)
-    print(for_back_df)
-    print(cyclic_df)
-    print(sawtooth_df)
-    # print(cyclic_df['Size']*3*8)
-    # print(cyclic_df['Avg Time per Access']*8)
-    # print(cyclic_df['Size'])
-    # print(cyclic_df['Avg Time per Access'])
 
-    cyclic_popt, cyclic_pcov = fit_curve(cyclic_df['Size']*8, cyclic_df['Avg Time per Access'], sqrt_fit)
-    sawtooth_popt, sawtooth_pcov = fit_curve(sawtooth_df['Size']*8, sawtooth_df['Avg Time per Access'], sqrt_fit)
-    for_for_popt, for_for_pcov = fit_curve(for_for_df['Size']*8, for_for_df['Avg Time per Access'], sqrt_fit)
-    for_back_popt, for_back_pcov = fit_curve(for_back_df['Size']*8, for_back_df['Avg Time per Access'], sqrt_fit)
-    back_back_popt, back_back_pcov = fit_curve(back_back_df['Size']*8, back_back_df['Avg Time per Access'], sqrt_fit)
+    if SECOND_CURVE:
+        second_cyclic_df = second_dfs['CYCLIC'].groupby('Size')['Avg Time per Access'].mean().reset_index()
+        second_sawtooth_df = second_dfs['SAWTOOTH'].groupby('Size')['Avg Time per Access'].mean().reset_index()
+        second_for_for_df = second_dfs['RAND FORWARD FORWARD'].groupby('Size')['Avg Time per Access'].mean().reset_index()
+        second_for_back_df = second_dfs['RAND FORWARD BACKWARD'].groupby('Size')['Avg Time per Access'].mean().reset_index()
+        second_back_back_df = second_dfs['RAND BACKWARD BACKWARD'].groupby('Size')['Avg Time per Access'].mean().reset_index()
 
-    print_curve_fit_result(cyclic_popt, 'cyclic')
-    print_curve_fit_result(sawtooth_popt, 'sawtooth')
-    print_curve_fit_result(for_for_popt, 'for_for')
-    print_curve_fit_result(for_back_popt, 'for_back')
-    print_curve_fit_result(back_back_popt, 'back_back')
+        if SCALE_SECOND_CURVE:
+            cyclic_scale = cyclic_df['Avg Time per Access'].max() / second_cyclic_df['Avg Time per Access'].max()
+            sawtooth_scale = sawtooth_df['Avg Time per Access'].max() / second_sawtooth_df['Avg Time per Access'].max()
+            for_for_scale = for_for_df['Avg Time per Access'].max() / second_for_for_df['Avg Time per Access'].max()
+            for_back_scale = for_back_df['Avg Time per Access'].max() / second_for_back_df['Avg Time per Access'].max()
+            back_back_scale = back_back_df['Avg Time per Access'].max() / second_back_back_df['Avg Time per Access'].max()
 
-    plt.plot(cyclic_df['Size']*8, sqrt_fit(cyclic_df['Size']*8, *cyclic_popt), label='cyclic', color='red')
-    plt.plot(sawtooth_df['Size']*8, sqrt_fit(sawtooth_df['Size']*8, *sawtooth_popt), label='sawtooth', color='green')
-    plt.plot(for_for_df['Size']*8, sqrt_fit(for_for_df['Size']*8, *for_for_popt), label='for_for', color='blue')
-    plt.plot(for_back_df['Size']*8, sqrt_fit(for_back_df['Size']*8, *for_back_popt), label='for_back', color='yellow')
-    plt.plot(back_back_df['Size']*8, sqrt_fit(back_back_df['Size']*8, *back_back_popt), label='back_back', color='black')
+    if TRIM_DATA:
+        cyclic_df = cyclic_df.loc[cyclic_df['Size'] <= 1*Gi / 8]
+        sawtooth_df = sawtooth_df.loc[sawtooth_df['Size'] <= 1*Gi / 8]
+        for_for_df = for_for_df.loc[for_for_df['Size'] <= 1*Gi  / 8]
+        for_back_df = for_back_df.loc[for_back_df['Size'] <= 1*Gi / 8]
+        back_back_df = back_back_df.loc[back_back_df['Size'] <= 1*Gi / 8]
+        if SECOND_CURVE:
+            second_cyclic_df = second_cyclic_df.loc[second_cyclic_df['Size'] <= 128*Mi / 8]
+            second_sawtooth_df = second_sawtooth_df.loc[second_sawtooth_df['Size'] <= 128*Mi / 8]
+            second_for_for_df = second_for_for_df.loc[second_for_for_df['Size'] <= 128*Mi / 8]
+            second_for_back_df = second_for_back_df.loc[second_for_back_df['Size'] <= 128*Mi / 8]
+            second_back_back_df = second_back_back_df.loc[second_back_back_df['Size'] <= 128*Mi/ 8]
 
-    plt.plot(cyclic_df['Size']*8, cyclic_df['Avg Time per Access'], label='cyclic', color='red', linewidth=3)
-    plt.plot(sawtooth_df['Size']*8, sawtooth_df['Avg Time per Access'], label='sawtooth', color='green', linewidth=3)
-    plt.plot(for_for_df['Size']*8, for_for_df['Avg Time per Access'], label='for_for', color='blue', linewidth=3)
-    plt.plot(for_back_df['Size']*8, for_back_df['Avg Time per Access'], label='for_back', color='yellow', linewidth=3)
-    plt.plot(back_back_df['Size']*8, back_back_df['Avg Time per Access'], label='back_back', color='black', linewidth=3)
+    if DIFFERENCE_IN_RESULTS:
+        difference_in_cyclic = cyclic_df['Avg Time per Access'] - second_cyclic_df['Avg Time per Access']
+        difference_in_sawtooth = sawtooth_df['Avg Time per Access'] - second_sawtooth_df['Avg Time per Access']
+        difference_in_for_for = for_for_df['Avg Time per Access'] - second_for_for_df['Avg Time per Access']
+        difference_in_for_back = for_back_df['Avg Time per Access'] - second_for_back_df['Avg Time per Access']
+        difference_in_back_back = back_back_df['Avg Time per Access'] - second_back_back_df['Avg Time per Access']
 
-    plt.axvline(x=384*1024/12, color='black', label='L1 size')
-    plt.axvline(x=shaotong_l2_cache, color='black', label='L2 size')
-    plt.axvline(x=shaotong_l3_cache, color='black', label='L3 size')
+        difference_ratio_in_cyclic = difference_in_cyclic / cyclic_df['Avg Time per Access']
+        difference_ratio_in_sawtooth = difference_in_sawtooth / sawtooth_df['Avg Time per Access']
+        difference_ratio_in_for_for = difference_in_for_for / for_for_df['Avg Time per Access']
+        difference_ratio_in_for_back = difference_in_for_back / for_back_df['Avg Time per Access']
+        difference_ratio_in_back_back = difference_in_back_back / back_back_df['Avg Time per Access']
+
+    if RAND_EVICTION_CURVE:
+        # rand_evict_scale = statistics.mean([for_for_df['Avg Time per Access'].max(), for_back_df['Avg Time per Access'].max(),
+        #                                     back_back_df['Avg Time per Access'].max()]) / rand_evict(96*Mi / 64, (cyclic_df['Size'].max() - ((32*Ki + 1*Mi) / 8)) / 8)
+        rand_evict_scale = statistics.mean([for_for_df['Avg Time per Access'].max(), for_back_df['Avg Time per Access'].max(),
+                                            back_back_df['Avg Time per Access'].max()]) / 1
+
+        if SECOND_CURVE:
+            second_evict_scale = statistics.mean([second_for_for_df['Avg Time per Access'].max(), second_for_back_df['Avg Time per Access'].max(),
+                                                    second_back_back_df['Avg Time per Access'].max()]) / rand_evict(32 * Ki + 0.5 * Mi + 96 * Mi, second_cyclic_df['Size'].max() * 8)
+
+    if CONVERT_TO_SEC:
+        cyclic_df['Avg Time per Access'] = cyclic_df['Avg Time per Access'] / shaotong_peak_freq
+        sawtooth_df['Avg Time per Access'] = sawtooth_df['Avg Time per Access'] / shaotong_peak_freq
+        for_for_df['Avg Time per Access'] = for_for_df['Avg Time per Access'] / shaotong_peak_freq
+        for_back_df['Avg Time per Access'] = for_back_df['Avg Time per Access'] / shaotong_peak_freq
+        back_back_df['Avg Time per Access'] = back_back_df['Avg Time per Access'] / shaotong_peak_freq
+
+        if SECOND_CURVE:
+            second_cyclic_df['Avg Time per Access'] = second_cyclic_df['Avg Time per Access'] / yifan_peak_freq
+            second_sawtooth_df['Avg Time per Access'] = second_sawtooth_df['Avg Time per Access'] / yifan_peak_freq
+            second_for_for_df['Avg Time per Access'] = second_for_for_df['Avg Time per Access'] / yifan_peak_freq
+            second_for_back_df['Avg Time per Access'] = second_for_back_df['Avg Time per Access'] / yifan_peak_freq
+            second_back_back_df['Avg Time per Access'] = second_back_back_df['Avg Time per Access'] / yifan_peak_freq
+
+    if PRINT_DATA:
+        if DIFFERENCE_IN_RESULTS:
+            print(f"difference_in_cyclic: \n{difference_in_cyclic}")
+            print(f"difference_in_sawtooth: \n{difference_in_sawtooth}")
+            print(f"difference_in_for_for: \n{difference_in_for_for}")
+            print(f"difference_in_for_back: \n{difference_in_for_back}")
+            print(f"difference_in_back_back: \n{difference_in_back_back}")
+
+            print(f"difference_ratio_in_cyclic: \n{difference_ratio_in_cyclic}")
+            print(f"difference_ratio_in_sawtooth: \n{difference_ratio_in_sawtooth}")
+            print(f"difference_ratio_in_for_for: \n{difference_ratio_in_for_for}")
+            print(f"difference_ratio_in_for_back: \n{difference_ratio_in_for_back}")
+            print(f"difference_ratio_in_back_back: \n{difference_ratio_in_back_back}")
+        else:
+            print(f"back back: {back_back_df}")
+            print(f"for for: {for_for_df}")
+            print(f"for back: {for_back_df}")
+            print(f"cyclic: {cyclic_df}")
+            print(f"sawtooth: {sawtooth_df}")
+
+            if SECOND_CURVE:
+                print(f"second back back: {second_back_back_df}")
+                print(f"second for for: {second_for_for_df}")
+                print(f"second for back: {second_for_back_df}")
+                print(f"second cyclic: {second_cyclic_df}")
+                print(f"second sawtooth: {second_sawtooth_df}")
+
+    if RAND_EVICTION_CURVE:
+        print(f"rand_evict_scale: {rand_evict_scale}")
+        if SECOND_CURVE:
+            print(f"second_evict_scale: {second_evict_scale}")
+
+    if CURVE_FITTING:
+        cyclic_popt, cyclic_pcov = fit_curve(cyclic_df['Size']*8, cyclic_df['Avg Time per Access'], sqrt_fit)
+        sawtooth_popt, sawtooth_pcov = fit_curve(sawtooth_df['Size']*8, sawtooth_df['Avg Time per Access'], sqrt_fit)
+        for_for_popt, for_for_pcov = fit_curve(for_for_df['Size']*8, for_for_df['Avg Time per Access'], sqrt_fit)
+        for_back_popt, for_back_pcov = fit_curve(for_back_df['Size']*8, for_back_df['Avg Time per Access'], sqrt_fit)
+        back_back_popt, back_back_pcov = fit_curve(back_back_df['Size']*8, back_back_df['Avg Time per Access'], sqrt_fit)
+
+        print_curve_fit_result(cyclic_popt, 'cyclic')
+        print_curve_fit_result(sawtooth_popt, 'sawtooth')
+        print_curve_fit_result(for_for_popt, 'for_for')
+        print_curve_fit_result(for_back_popt, 'for_back')
+        print_curve_fit_result(back_back_popt, 'back_back')
+
+        plt.plot(cyclic_df['Size']*8, sqrt_fit(cyclic_df['Size']*8, *cyclic_popt), label='fitted cyclic', color='red', linestyle='dashed')
+        plt.plot(sawtooth_df['Size']*8, sqrt_fit(sawtooth_df['Size']*8, *sawtooth_popt), label='fitted sawtooth', color='green', linestyle='dashed')
+        plt.plot(for_for_df['Size']*8, sqrt_fit(for_for_df['Size']*8, *for_for_popt), label='fitted for_for', color='blue', linestyle='dashed')
+        plt.plot(for_back_df['Size']*8, sqrt_fit(for_back_df['Size']*8, *for_back_popt), label='fitted for_back', color='yellow', linestyle='dashed')
+        plt.plot(back_back_df['Size']*8, sqrt_fit(back_back_df['Size']*8, *back_back_popt), label='fitted back_back', color='black', linestyle='dashed')
+        # may need to fit the second curve as well
+
+    if RAND_EVICTION_CURVE:
+        plt.plot(cyclic_df['Size']*8, (rand_evict(32*Ki + 1*Mi + 128*Mi, cyclic_df['Size']*8)) * rand_evict_scale, label='7950X3D random eviction', color='black', linestyle='dashed', linewidth=5)
+        if SECOND_CURVE:
+            plt.plot(second_cyclic_df['Size']*8, (rand_evict(32*Ki + 0.5*Mi + 768*Mi, second_cyclic_df['Size']*8)) * second_evict_scale, label='7773X random eviction', color='red', linestyle='dashed', linewidth=5)
+
+    if DATA_PLOTTING:
+        if DIFFERENCE_IN_RESULTS:
+            plt.plot(cyclic_df['Size']*8, difference_in_cyclic, label='diff in cyclic', color='red', linewidth=3)
+            plt.plot(sawtooth_df['Size']*8, difference_in_sawtooth, label='diff in sawtooth', color='green', linewidth=3)
+            plt.plot(for_for_df['Size']*8, difference_in_for_for, label='diff in for_for', color='blue', linewidth=3)
+            plt.plot(for_back_df['Size']*8, difference_in_for_back, label='diff in for_back', color='yellow', linewidth=3)
+            plt.plot(back_back_df['Size']*8, difference_in_back_back, label='diff in back_back', color='black', linewidth=3)
+
+            plt.plot(cyclic_df['Size']*8, difference_ratio_in_cyclic, label='diff ratio in cyclic', color='red', linewidth=3, linestyle='dashed')
+            plt.plot(sawtooth_df['Size']*8, difference_ratio_in_sawtooth, label='diff ratio in sawtooth', color='green', linewidth=3, linestyle='dashed')
+            plt.plot(for_for_df['Size']*8, difference_ratio_in_for_for, label='diff ratio in for_for', color='blue', linewidth=3, linestyle='dashed')
+            plt.plot(for_back_df['Size']*8, difference_ratio_in_for_back, label='diff ratio in for_back', color='yellow', linewidth=3, linestyle='dashed')
+            plt.plot(back_back_df['Size']*8, difference_ratio_in_back_back, label='diff ratio in back_back', color='black', linewidth=3, linestyle='dashed')
+        else:
+            # plt.plot(cyclic_df['Size']*8, cyclic_df['Avg Time per Access'], label='cyclic', color='red', linewidth=3)
+            # plt.plot(sawtooth_df['Size']*8, sawtooth_df['Avg Time per Access'], label='sawtooth', color='green', linewidth=3)
+            plt.plot(for_for_df['Size']*8, for_for_df['Avg Time per Access'], label='7950X3D for_for', color='blue', linewidth=3)
+            plt.plot(for_back_df['Size']*8, for_back_df['Avg Time per Access'], label='7950X3D for_back', color='yellow', linewidth=3)
+            plt.plot(back_back_df['Size']*8, back_back_df['Avg Time per Access'], label='7950X3D back_back', color='black', linewidth=3)
+
+            if SECOND_CURVE:
+                # plt.plot(second_cyclic_df['Size']*8, second_cyclic_df['Avg Time per Access'], label='1GiB Huge Page cyclic', color='red', linewidth=3, linestyle='dashed')
+                # plt.plot(second_sawtooth_df['Size']*8, second_sawtooth_df['Avg Time per Access'], label='1GiB Huge Page sawtooth', color='green', linewidth=3, linestyle='dashed')
+                plt.plot(second_for_for_df['Size']*8, second_for_for_df['Avg Time per Access'], label='7773X for_for', color='blue', linewidth=3, linestyle='dashed')
+                plt.plot(second_for_back_df['Size']*8, second_for_back_df['Avg Time per Access'], label='7773X for_back', color='yellow', linewidth=3, linestyle='dashed')
+                plt.plot(second_back_back_df['Size']*8, second_back_back_df['Avg Time per Access'], label='7773X back_back', color='black', linewidth=3, linestyle='dashed')
+
+
+    if CACHE_SIZE_PLOTTING:
+        plt.axvline(x=32*Ki, color='black', label='L1 size')
+        if SHAOTONG_CACHE_SIZE_PLOTTING:
+            plt.axvline(x=shaotong_l2_cache, color='black', label='7950X3D L2 size')
+            plt.axvline(x=shaotong_l3_cache, color='black', label='L3 size(7950X3D CCD0&7773X)')
+
+        if YIFAN_CACHE_SZIE_PLOTTING:
+            plt.axvline(x=yifan_l2_cache, color='red', label='7773X L2 size')
+            # plt.axvline(x=yifan_l3_cache, color='red', label='7773X L3 size')
+
+        if CYCLE2_CACHE_SIZE_PLOTTING:
+            plt.axvline(x=cycle2_l2_cache, color='green', label='E5-2430 L2 size')
+            plt.axvline(x=cycle2_l3_cache, color='green', label='E5-2430 L3 size')
+
     ax = plt.gca()
-    ax.set_ylim([0, 10])
-    ax.set_xlim([0, shaotong_l2_cache])
-    plt.title('Total Arrays Size vs. Avg Cycles per Access(s)')
-    plt.xlabel('Total Arrays Size(B)')
-    plt.ylabel('Avg Cycles per Access(s)')
+    # ax.set_ylim([0, 20])
+    # ax.set_xlim([0, 0.5*Mi])
+
+    # plt.xscale('log', base=2)
+    # plt.rcParams.update({'font.size': 13})
+    # plt.rc('figure', titlesize=50)
+    # plt.rc('legend', fontsize=22)
+    # plt.rc('axes', titlesize=30)
+    # plt.rc('axes', labelsize=30)
+    # plt.rc('xtick', labelsize=30)
+    # plt.rc('ytick', labelsize=30)
+
+    # ax.tick_params(axis='x', labelsize=18)
+    # ax.tick_params(axis='y', labelsize=18)
+
+    if CONVERT_TO_SEC:
+        plt.title('Total Arrays Size vs. Avg latency per Access(ns)', fontsize=27)
+        plt.ylabel('Avg latency per Access(ns)', fontsize=22)
+    else:
+        plt.title('Total Arrays Size vs. Avg latency per Access(cycle)', fontsize=27)
+        plt.ylabel('Avg latency per Access(cycle)', fontsize=22)
+
+    plt.plot(rd_d, rd_cr , label='7950X3D Random Eviction', color='black', linestyle='dashed', linewidth=5)
+
+    plt.xlabel('Total Arrays Size(B)', fontsize=22)
     plt.grid(True)
-    plt.legend()
+    plt.legend(fontsize=15)
     plt.savefig(cache_log_file_name + '_time_per_access.png', dpi=100)
     plt.show()
-
-
-    # plt.figure(figsize=(10, 6))
-    # time_per_access_df = time_per_access_df[time_per_access_df['time per access'] != 1e-6]
-    # print(time_per_access_df)
-    # plt.scatter(time_per_access_df['matrix size'], time_per_access_df['time per access'], color='blue')
-    # plt.title('Matrix Size vs Time per Access (s)')
-    # plt.xlabel('Matrix Size')
-    # plt.ylabel('Time per Access (s)')
-    # plt.grid(True)
-    # plt.savefig(co_run_log_filename + '_time_per_access', dpi=100)
-    # plt.show()
-    #
-    # plt.figure(figsize=(10, 6))
-    # plt.scatter(non_avg_x, non_avg_y, color='blue')
-    # plt.title('Matrix Size vs Time per Access (s)')
-    # plt.xlabel('Matrix Size')
-    # plt.ylabel('Time per Access (s)')
-    # plt.grid(True)
-    # plt.savefig(co_run_log_filename + '_non_avged', dpi=100)
-    # plt.show()
-    #
-    # plt.figure(figsize=(10, 6))
-    # plt.scatter(x_values, y_values, color='blue')
-    # plt.title('Matrix Size vs Time per Access (s)')
-    # plt.xlabel('Matrix Size')
-    # plt.ylabel('Time per Access (s)')
-    # plt.grid(True)
-    # plt.savefig(co_run_log_filename + '_avged', dpi=100)
-    # plt.show()
-
-    # w = []
-    # h = []
-    #
-    # for i in np.arange(min_n, max_n, 0.01):
-    #     w.append(i)
-    #     h.append(polynormial(i, popt[0], popt[1], popt[2], popt[3], popt[4]))
-    #
-    # qw = []
-    # qh = []
-    # for i in np.arange(min_n, max_n, 0.01):
-    #     qw.append(i)
-    #     qh.append(quadratic(i, qopt[0], qopt[1], qopt[2]))
-    #
-    # cwtw = []
-    # cwth = []
-    # for i in np.arange(min_n, max_n, 0.01):
-    #     cwtw.append(i)
-    #     cwth.append(cubic_with_term(i, cwtopt[0], cwtopt[1], cwtopt[2], cwtopt[3]))
-    #
-    # cw = []
-    # ch = []
-    #
-    # for i in np.arange(min_n, max_n, 0.01):
-    #     cw.append(i)
-    #     ch.append(cubic(i, copt[0]))
-    #
-    # fw = []
-    # fh = []
-    #
-    # for i in np.arange(min_n, max_n, 0.01):
-    #     fw.append(i)
-    #     fh.append(fourth(i, fopt[0]))
-
-
-
-
-        # Create the plot
-        # plt.figure(figsize=(10, 6))
-        # # plt.ion()
-        # plt.scatter(x_values, y_values, color='blue')
-        # # plt.ioff()
-        # plt.title('N vs Duration (s)')
-        # plt.xlabel('N')
-        # plt.ylabel('Duration (s)')
-        # # plt.plot(w, h, color='red')
-        # # plt.plot(qw, qh, color='purple')
-        # plt.plot(cwtw, cwth, color='orange')
-        # plt.plot(cw, ch, color='yellow')
-        # plt.plot(fw, fh, color='green')
-        # plt.grid(True)
-        # plt.savefig(co_run_log_filename, dpi=100)
-        # plt.show()
-        #
-        # # Draw another plot using the abnormal points
-        # # plt.figure(figsize=(10, 6))
-        # # plt.scatter([i[0] for i in abnormal_points], [i[1] for i in abnormal_points], color='blue')
-        # # plt.title('N vs Duration (s) with abnormal points')
-        # # plt.xlabel('N')
-        # # plt.ylabel('Duration (s)')
-        # # plt.plot(abn_fw, abn_fh, color='green')
-        # # plt.plot(abn_cwtw, abn_cwth, color='orange')
-        # # plt.grid(True)
-        # # plt.savefig(co_run_log_filename + '_abnormal', dpi=100)
-        # plt.show()
-
-        # # Draw another plot without the average
-        # plt.figure(figsize=(10, 6))
-        # plt.scatter(non_avg_x, non_avg_y, color='blue')
-        # plt.title('N vs Duration (s) without average')
-        # plt.xlabel('N')
-        # plt.ylabel('Duration (s)')
-        # plt.grid(True)
-        # plt.savefig(co_run_log_filename + '_noavg', dpi=100)
-        # plt.show()
-
+    print(rand_evict(96*Mi / 64, (128*Mi - 32*Ki - Mi) / 64))
 
 
 if __name__ == '__main__':
